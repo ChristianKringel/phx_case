@@ -64,4 +64,4 @@ Base URL configurada via variável de ambiente `VITE_N8N_WEBHOOK_URL` (padrão: 
 
 ---
 
-**Desenvolvido por PHX Consulting** - Sistema de recomendações inteligentes para gestão otimizada de estoque
+**Desenvolvido por Christian Kringel** Para **PHX Consulting** - Sistema de recomendações inteligentes para gestão otimizada de estoque
