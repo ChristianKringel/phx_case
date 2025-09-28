@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Sistema de Design PHX Consulting - Gestão de Estoque Inteligente
+Todas as cores devem ser HSL para consistência. 
+*/
+
+@layer base {
+  :root {
+    /* Background & Surface */
+    --background: 220 13% 97%;
+    --foreground: 215 28% 17%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 17%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 17%;
+
+    /* Cores Corporativas PHX */
+    --primary: 214 84% 56%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 214 84% 50%;
+    --primary-glow: 214 84% 70%;
+
+    --secondary: 215 20% 93%;
+    --secondary-foreground: 215 28% 17%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 142 76% 36%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Sistema de Status */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --success-light: 142 76% 94%;
+
+    --warning: 43 96% 56%;
+    --warning-foreground: 0 0% 100%;
+    --warning-light: 43 96% 95%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-light: 0 84% 97%;
+
+    --critical: 14 91% 43%;
+    --critical-foreground: 0 0% 100%;
+    --critical-light: 14 91% 96%;
+
+    /* Elementos de Interface */
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 214 84% 56%;
+
+    /* Gradientes Corporativos */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-success: linear-gradient(135deg, hsl(var(--success)), hsl(142 76% 45%));
+    --gradient-chart: linear-gradient(180deg, hsl(var(--primary) / 0.1), hsl(var(--primary) / 0.05));
+
+    /* Sombras Profissionais */
+    --shadow-card: 0 4px 6px -1px hsl(214 32% 91% / 0.1), 0 2px 4px -1px hsl(214 32% 91% / 0.06);
+    --shadow-elevated: 0 10px 15px -3px hsl(214 32% 91% / 0.1), 0 4px 6px -2px hsl(214 32% 91% / 0.05);
+    --shadow-intense: 0 20px 25px -5px hsl(214 32% 91% / 0.1), 0 10px 10px -5px hsl(214 32% 91% / 0.04);
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    /* Background & Surface Dark */
+    --background: 215 28% 8%;
+    --foreground: 213 31% 91%;
+
+    --card: 215 28% 10%;
+    --card-foreground: 213 31% 91%;
+
+    --popover: 215 28% 10%;
+    --popover-foreground: 213 31% 91%;
+
+    /* Cores Corporativas Dark */
+    --primary: 214 84% 65%;
+    --primary-foreground: 215 28% 8%;
+    --primary-hover: 214 84% 70%;
+    --primary-glow: 214 84% 75%;
+
+    --secondary: 215 28% 15%;
+    --secondary-foreground: 213 31% 91%;
+
+    --muted: 215 28% 15%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 142 76% 45%;
+    --accent-foreground: 215 28% 8%;
+
+    /* Sistema de Status Dark */
+    --success: 142 76% 45%;
+    --success-foreground: 215 28% 8%;
+    --success-light: 142 76% 8%;
+
+    --warning: 43 96% 65%;
+    --warning-foreground: 215 28% 8%;
+    --warning-light: 43 96% 8%;
+
+    --destructive: 0 84% 65%;
+    --destructive-foreground: 215 28% 8%;
+    --destructive-light: 0 84% 8%;
+
+    --critical: 14 91% 55%;
+    --critical-foreground: 215 28% 8%;
+    --critical-light: 14 91% 8%;
+
+    /* Elementos de Interface Dark */
+    --border: 215 28% 18%;
+    --input: 215 28% 18%;
+    --ring: 214 84% 65%;
+
+    /* Gradientes Dark */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-success: linear-gradient(135deg, hsl(var(--success)), hsl(142 76% 55%));
+    --gradient-chart: linear-gradient(180deg, hsl(var(--primary) / 0.15), hsl(var(--primary) / 0.08));
+
+    /* Sombras Dark */
+    --shadow-card: 0 4px 6px -1px hsl(215 28% 8% / 0.3), 0 2px 4px -1px hsl(215 28% 8% / 0.2);
+    --shadow-elevated: 0 10px 15px -3px hsl(215 28% 8% / 0.3), 0 4px 6px -2px hsl(215 28% 8% / 0.2);
+    --shadow-intense: 0 20px 25px -5px hsl(215 28% 8% / 0.3), 0 10px 10px -5px hsl(215 28% 8% / 0.2);
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
