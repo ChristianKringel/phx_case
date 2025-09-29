@@ -46,12 +46,9 @@ O front-end consome dados através de webhooks do N8N nas seguintes rotas:
 
 ### Produtos e Estoque
 - `GET /webhook/products` - Lista todos os produtos
-- `GET /webhook/current-stock` - Estoque atual por produto
-- `GET /webhook/stock-indicators` - Indicadores de estoque
 - `GET /webhook/stock-coverage` - Análise de cobertura de estoque
 
 ### Vendas e Análises
-- `GET /webhook/sales` - Dados de vendas (com filtros opcionais de data)
 - `GET /webhook/sku-sales-analysis` - Análise de vendas por SKU
 
 ### Recomendações e Alertas
