@@ -47,6 +47,21 @@ cd Front-end
 python fake_data.py
 ```
 
+## Ambiente de Desenvolvimento
+
+### Docker Compose
+Configuração Docker que provisiona a infraestrutura completa do back-end com N8N (automação de workflows) e PostgreSQL.
+
+### Serviços Incluídos
+- **PostgreSQL 13**: Banco de dados principal (porta 5433)
+- **N8N**: Plataforma de automação para workflows e webhooks (porta 5679)
+
+### Como Executar
+```bash
+cd Docker
+docker-compose up -d
+```
+
 ## Back-end
 ### overstock-alerts
 Workflow responsável por retornar produtos com overstock. <br>
