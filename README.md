@@ -30,6 +30,23 @@ Sistema de recomendações automáticas de estoque com Inteligência Artificial 
 - `npm run lint` - Executa linting
 - `npm run preview` - Preview do build
 
+## Gerador de Dados Fictícios
+
+### Sobre
+Script Python (`fake_data.py`) que gera dados fictícios para popular o banco de dados PostgreSQL com informações realistas de produtos, vendas, compras e parâmetros do sistema.
+
+### Funcionalidade
+- Gera 250 produtos distribuídos em 8 categorias
+- Cria 12.000 registros de vendas dos últimos 12 meses
+- Simula 3.000 compras dos últimos 24 meses
+- Produz arquivo `inserts_dados_ficticios.txt` com comandos SQL INSERT para PostgreSQL
+
+### Como Executar
+```bash
+cd Front-end
+python fake_data.py
+```
+
 ## Back-end
 ### overstock-alerts
 Workflow responsável por retornar produtos com overstock. <br>
