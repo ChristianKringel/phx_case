@@ -31,9 +31,39 @@ Sistema de recomendações automáticas de estoque com Inteligência Artificial 
 - `npm run preview` - Preview do build
 
 ## Back-end
+### overstock-alerts
+Workflow responsável por retornar produtos com overstock. <br>
+Realiza uma Query no Postgres direcionada a todos os produtos com Overstock e então retorna um array no data
 
-### Estrutura
+### sku-sales-analysis
+Workflow responsável por retornar a análise de cada produto <br>
+Realiza uma Query no Postgres que retorna os produtos agrupados por métricas mensais. <br>
+Retorna um objeto com cada métrica mensal separada para amostragem no front-end.
 
+### stock-coverage
+Workflow responsável por trazer a cobertura de estoque <br>
+Realiza uma Query no Postgres que traz o SKU e algumas métricas extras (risco de ruptura, media de vendas, cobertura, etc). <br>
+Esses dados podem ser potencializados se aplicado um AI Agent sobre eles <br>
+
+### dashboard-kpis
+Workflow responsável por mandar os dados do Dashboard principal do front-end <br>
+Realiza uma Query no Postgres que retorna métricas como quantidade de produtos zerados, número total de produtos, etc
+
+
+### abc-classification
+Workflow responsável pela categorizacão de ABC <br>
+Realiza uma Query no Postgres agrupando pelas categorias ABC 
+
+### purchase-recomendations
+Workflow responsável por recomendar compras <br>
+Realiza uma Query no Postgres com os supostos melhores produtos para o AI Agent <br>
+Utiliza um AI Agent responsável por: 
+- Prever a demanda diária de cada produto (Com base em sazonalidade, crescimento mensal ou decrescimento)
+- Retorna uma justificativa para essa previsão <br>
+<br>
+#### Modelo utilizado
+- Gemini 2.5 Flash <br>
+- Baixo custo e bom desempenho para esse tipo de tarefa
 
 ## Endpoints
 
