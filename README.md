@@ -61,7 +61,7 @@ Utiliza um AI Agent responsável por:
 - Prever a demanda diária de cada produto (Com base em sazonalidade, crescimento mensal ou decrescimento)
 - Retorna uma justificativa para essa previsão <br>
 <br>
-#### Modelo utilizado
+### Modelo utilizado
 - Gemini 2.5 Flash <br>
 - Baixo custo e bom desempenho para esse tipo de tarefa
 
