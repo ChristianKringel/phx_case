@@ -1,0 +1,155 @@
+{
+  "name": "abc-classification",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        128,
+        -16
+      ],
+      "id": "2ce5073c-168f-427d-af91-78410f8e2852",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "path": "abc-classification",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        128,
+        160
+      ],
+      "id": "498b44e9-3a74-4de2-a2ed-f60f1fb64c80",
+      "name": "Webhook",
+      "webhookId": "e864e040-68d4-46a0-b908-497b42ae1bef"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        624,
+        48
+      ],
+      "id": "46bf3b59-6c27-402d-af66-57f3300bb600",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"data\": $input.all()[0].json.data.map(item => ({\n    \"categoria\": item.categoria, \n    \"produtos_a\": item.classificacao_a.toNumber(),\n    \"produtos_b\": item.classificacao_b.toNumber(),\n    \"produtos_c\": item.classificacao_c.toNumber(),\n    \"faturamento_a\": item.receita_a.toNumber(),\n    \"faturamento_b\": item.receita_b.toNumber(),\n    \"faturamento_c\": item.receita_c.toNumber()\n  }))\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        816,
+        48
+      ],
+      "id": "f2008421-a394-42dc-ae5f-8dc3f9bdff7d",
+      "name": "Resposta do Webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH SKU_com_Curva AS (\n    -- Classificacao ABC\n    SELECT\n        p.categoria,\n        SUM(v.valor_total) AS faturamento_sku,\n        -- Atribui a curva ABC baseada no percentil de faturamento do produto.\n        -- Ex: Top 20% dos produtos = A, próximos 30% = B, resto = C.\n        CASE\n            WHEN NTILE(100) OVER (ORDER BY SUM(v.valor_total) DESC) <= 20 THEN 'A'\n            WHEN NTILE(100) OVER (ORDER BY SUM(v.valor_total) DESC) <= 50 THEN 'B'\n            ELSE 'C'\n        END AS curva_abc\n    FROM\n        vendas v\n    JOIN\n        produtos p ON v.sku = p.sku\n    WHERE\n        v.data_venda >= CURRENT_DATE - INTERVAL '365 days'\n    GROUP BY\n        p.sku, p.categoria\n)\n-- Agrupa por categoria\nSELECT\n    categoria,\n    -- Conta a quantidade de produtos para cada classe dentro da categoria\n    COUNT(*) FILTER (WHERE curva_abc = 'A') AS classificacao_a,\n    COUNT(*) FILTER (WHERE curva_abc = 'B') AS classificacao_b,\n    COUNT(*) FILTER (WHERE curva_abc = 'C') AS classificacao_c,\n    -- Soma a receita (faturamento) para cada classe dentro da categoria\n    COALESCE(SUM(faturamento_sku) FILTER (WHERE curva_abc = 'A'), 0)::DECIMAL(12,2) AS receita_a,\n    COALESCE(SUM(faturamento_sku) FILTER (WHERE curva_abc = 'B'), 0)::DECIMAL(12,2) AS receita_b,\n    COALESCE(SUM(faturamento_sku) FILTER (WHERE curva_abc = 'C'), 0)::DECIMAL(12,2) AS receita_c\nFROM\n    SKU_com_Curva\nGROUP BY\n    categoria\nORDER BY\n    receita_a DESC, receita_b DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        416,
+        48
+      ],
+      "id": "806ca65c-ceef-4101-810b-3094eb9d8c29",
+      "name": "Get de curvas e agrupamentos",
+      "credentials": {
+        "postgres": {
+          "id": "B75m3NP8FNAC9Vvn",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Flow responsável pela resposta ao endpoint abc-classification\nEsse flow simplesmente faz uma query no Postgres direcionada e retorna os itens esperados a API \nEsse GET na DB é basicamente um agrupamento pelas categorias ABC",
+        "height": 496,
+        "width": 912,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        80,
+        -192
+      ],
+      "id": "66670fc0-03e2-444f-bf49-4a506fc24c8d",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get de curvas e agrupamentos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get de curvas e agrupamentos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Resposta do Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get de curvas e agrupamentos": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "636175c6-8223-4b3d-8497-14db7c52bec4",
+  "meta": {
+    "instanceId": "44bf8e0e369ddf4ff04434e131f33f41ec8dffa94fb5f73783726fc03f2a91c4"
+  },
+  "id": "ByPhZuyXQzHqefDk",
+  "tags": []
+}

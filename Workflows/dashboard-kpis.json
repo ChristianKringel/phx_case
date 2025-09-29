@@ -1,0 +1,130 @@
+{
+  "name": "dashboard-kpis",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c59bd124-b0ef-400d-9e1b-14cbf244229e",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "path": "dashboard-kpis",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        176
+      ],
+      "id": "14234852-a18e-4130-8ff8-f7f6e4a9e921",
+      "name": "Webhook",
+      "webhookId": "e864e040-68d4-46a0-b908-497b42ae1bef"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow do Dashboard principal do Front-end \nResponde ao Webhook dashboard-kpis\nEsse flow faz uma query agrupada no Postgres onde já retorna todos os produtos, quantidade de produto zerado de estoque dentre outras métricas principais da aplicacão. ",
+        "height": 480,
+        "width": 736
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        -144
+      ],
+      "id": "869e28fe-0d1d-4a86-9daa-205daedb9f99",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": {{ true }}, \n  \"data\": { \n    \"produtos_ativos\": \"{{ $json.produtos_ativos }}\", \n    \"valor_estoque\": \"{{ $json.valor_estoque }}\", \n    \"produtos_zerados\": \"{{ $json.produtos_zerados }}\",\n    \"produtos_criticos\": \"{{ $json.produtos_criticos }}\",\n    \"total_vendas_30d\": \"{{ $json.total_vendas_30d }}\",\n    \"media_vendas_diaria\": \"{{ $json.media_vendas_diaria }}\",\n    \"crecimento_vendas\": \"{{ $json.crescimento_vendas || 0}}\", \n    \"rotatividade_estoque\": \"{{ $json.rotatividade_estoque }}\"\n  }\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        480,
+        64
+      ],
+      "id": "753b1ae6-c9b3-4020-9934-28b7ef8e5f57",
+      "name": "Resposta ao Webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH\n  -- CTE para calcular o valor total do estoque e o número de produtos zerados/críticos\n  DadosEstoque AS (\n    SELECT\n      SUM(e.estoque_fisico * p.preco_custo) AS valor_estoque_total,\n      COUNT(CASE WHEN e.estoque_fisico = 0 THEN 1 END) AS total_produtos_zerados,\n      COUNT(CASE WHEN e.estoque_fisico > 0 AND e.estoque_fisico < 10 THEN 1 END) AS total_produtos_criticos -- Premissa: estoque crítico < 10\n    FROM estoque_atual e\n    JOIN produtos p ON e.sku = p.sku\n  ),\n  -- CTE para calcular as vendas e o custo (CMV) nos últimos 30 dias\n  VendasPeriodoAtual AS (\n    SELECT\n      COALESCE(SUM(v.valor_total), 0) AS total_vendas,\n      COALESCE(SUM(v.quantidade * p.preco_custo), 0) AS custo_mercadorias_vendidas\n    FROM vendas v\n    JOIN produtos p ON v.sku = p.sku\n    WHERE v.data_venda >= (CURRENT_DATE - INTERVAL '30 days')\n  ),\n  -- CTE para calcular as vendas no período anterior (dias 31 a 60 atrás) para o crescimento\n  VendasPeriodoAnterior AS (\n    SELECT\n      COALESCE(SUM(valor_total), 0) AS total_vendas\n    FROM vendas\n    WHERE data_venda >= (CURRENT_DATE - INTERVAL '60 days') AND data_venda < (CURRENT_DATE - INTERVAL '30 days')\n  )\nSELECT\n  (SELECT COUNT(*) FROM produtos WHERE status = 'ATIVO') AS produtos_ativos,\n  \n  de.valor_estoque_total AS valor_estoque,\n  de.total_produtos_zerados AS produtos_zerados,\n  de.total_produtos_criticos AS produtos_criticos,\n  \n  vpa.total_vendas AS total_vendas_30d,\n  vpa.total_vendas / 30.0 AS media_vendas_diaria,\n  \n  -- Cálculo do crescimento de vendas em porcentagem\n  ( (vpa.total_vendas - vpan.total_vendas) / NULLIF(vpan.total_vendas, 0) ) * 100 AS crescimento_vendas,\n  \n  -- Cálculo da rotatividade de estoque\n  vpa.custo_mercadorias_vendidas / NULLIF(de.valor_estoque_total, 0) AS rotatividade_estoque\n  \nFROM\n  DadosEstoque de,\n  VendasPeriodoAtual vpa,\n  VendasPeriodoAnterior vpan;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        272,
+        64
+      ],
+      "id": "a6e92adc-5cf5-4293-a675-e38eef92c6d9",
+      "name": "Query do Dashboard",
+      "credentials": {
+        "postgres": {
+          "id": "B75m3NP8FNAC9Vvn",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Query do Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Query do Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query do Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Resposta ao Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b3c00b0b-2859-4557-b2cf-746c0684e351",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "44bf8e0e369ddf4ff04434e131f33f41ec8dffa94fb5f73783726fc03f2a91c4"
+  },
+  "id": "r5Dt3rBZJcvDMK8Z",
+  "tags": []
+}

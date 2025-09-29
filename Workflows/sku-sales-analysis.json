@@ -1,0 +1,156 @@
+{
+  "name": "sku-sales-analysis",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        144,
+        0
+      ],
+      "id": "b7345309-e843-4ebf-b179-ed1bd419a19d",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH Vendas_Agregadas AS (\n    -- Metricas de quantidade e valor\n    SELECT\n        sku,\n        -- Metricas de 30 dias\n        SUM(quantidade) FILTER (WHERE data_venda >= CURRENT_DATE - INTERVAL '30 days') AS qtd_30d,\n        SUM(valor_total) FILTER (WHERE data_venda >= CURRENT_DATE - INTERVAL '30 days') AS valor_30d,\n        -- Metricas de 90 dias\n        SUM(quantidade) FILTER (WHERE data_venda >= CURRENT_DATE - INTERVAL '90 days') AS qtd_90d,\n        SUM(valor_total) FILTER (WHERE data_venda >= CURRENT_DATE - INTERVAL '90 days') AS valor_90d,\n        -- Metricas de 365 dias\n        SUM(quantidade) FILTER (WHERE data_venda >= CURRENT_DATE - INTERVAL '365 days') AS qtd_365d,\n        SUM(valor_total) FILTER (WHERE data_venda >= CURRENT_DATE - INTERVAL '365 days') AS valor_365d\n    FROM\n        vendas\n    GROUP BY\n        sku\n)\n-- Agrupamento dos dados dos produtos com calculos\nSELECT\n    p.sku,\n    p.nome,\n    p.categoria,\n    -- Uso json_build pra criar JSONaninhado com o SQL\n    json_build_object(\n        'quantidade', COALESCE(v.qtd_30d, 0),\n        'valor_total', COALESCE(v.valor_30d, 0)::DECIMAL(12,2),\n        'media_diaria', ROUND(COALESCE(v.qtd_30d, 0) / 30.0, 2)\n    ) AS vendas_30d,\n    json_build_object(\n        'quantidade', COALESCE(v.qtd_90d, 0),\n        'valor_total', COALESCE(v.valor_90d, 0)::DECIMAL(12,2),\n        'media_diaria', ROUND(COALESCE(v.qtd_90d, 0) / 90.0, 2)\n    ) AS vendas_90d,\n    json_build_object(\n        'quantidade', COALESCE(v.qtd_365d, 0),\n        'valor_total', COALESCE(v.valor_365d, 0)::DECIMAL(12,2),\n        'media_diaria', ROUND(COALESCE(v.qtd_365d, 0) / 365.0, 2)\n    ) AS vendas_365d,\n    -- A tendência é calculada comparando a média de vendas dos últimos 30 dias\n    -- com a média de vendas do período anterior (de 31 a 90 dias atrás).\n    CASE\n        WHEN (COALESCE(v.qtd_30d, 0) / 30.0) > (COALESCE(v.qtd_90d, 0) - COALESCE(v.qtd_30d, 0)) / NULLIF(60.0, 0) * 1.1 THEN 'crescente'\n        WHEN (COALESCE(v.qtd_30d, 0) / 30.0) < (COALESCE(v.qtd_90d, 0) - COALESCE(v.qtd_30d, 0)) / NULLIF(60.0, 0) * 0.9 THEN 'decrescente'\n        ELSE 'estavel'\n    END AS tendencia\nFROM\n    produtos p\nLEFT JOIN\n    Vendas_Agregadas v ON p.sku = v.sku\nWHERE\n    p.status = 'ATIVO'\nORDER BY\n    p.sku;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        432,
+        64
+      ],
+      "id": "4dbbf5d6-f6a9-4456-a173-13608884c978",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "B75m3NP8FNAC9Vvn",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "sku-sales-analysis",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        144,
+        176
+      ],
+      "id": "e7599177-8bd5-4f19-bc07-e5ce15a5c541",
+      "name": "Webhook",
+      "webhookId": "e864e040-68d4-46a0-b908-497b42ae1bef"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        640,
+        64
+      ],
+      "id": "06c50211-93a7-4e25-8451-ebec8b94ff46",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow responsável por retornar a análise do sku para o endpoint sku-sales-analysis\nEsse flow faz uma Query no Postgres retornando todos os produtos (SKU) agrupados por métricas mensais\nRetorna um objeto com cada métrica mensal separada para amostragem no front",
+        "height": 592,
+        "width": 960,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        64,
+        -240
+      ],
+      "id": "2fecd0ed-eb7c-4506-ab13-9618fd58df1f",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"data\": $input.all()[0].json.data.map(item => ({\n    \"sku\": item.sku,\n    \"nome\": item.nome,\n    \"categoria\": item.categoria,\n     \"vendas_30d\": {\n        \"quantidade\": item.vendas_30d.quantidade,\n        \"valor_total\": item.vendas_30d.valor_total,\n        \"media_diaria\": item.vendas_30d.media_diaria\n     },\n    \"vendas_90d\": {\n        \"quantidade\": item.vendas_90d.quantidade,\n        \"valor_total\": item.vendas_90d.valor_total,\n        \"media_diaria\": item.vendas_90d.media_diaria\n     }, \n    \"vendas_365d\": {\n        \"quantidade\": item.vendas_365d.quantidade,\n        \"valor_total\": item.vendas_365d.valor_total,\n        \"media_diaria\": item.vendas_365d.media_diaria\n     }, \n    \"tendencia\": item.tendencia\n  }))\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        832,
+        64
+      ],
+      "id": "58fb6f18-40c7-460c-b871-7ae207e40039",
+      "name": "Resposta ao Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Resposta ao Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "a9df7552-0b1b-49ce-a489-ea71cb55054a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "44bf8e0e369ddf4ff04434e131f33f41ec8dffa94fb5f73783726fc03f2a91c4"
+  },
+  "id": "nnrov7nMCq4b6OaR",
+  "tags": []
+}

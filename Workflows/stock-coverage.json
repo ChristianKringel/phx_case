@@ -1,0 +1,155 @@
+{
+  "name": "stock-coverage",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -192,
+        -16
+      ],
+      "id": "9e59e2ec-f713-4ee2-9285-92b0143e4958",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH Vendas_Agregadas AS (\n    -- agrego vendas por cada sku \n    SELECT\n        sku,\n        SUM(quantidade) FILTER (WHERE data_venda >= CURRENT_DATE - INTERVAL '30 days') AS vendas_30d,\n        SUM(quantidade) FILTER (WHERE data_venda >= CURRENT_DATE - INTERVAL '90 days') AS vendas_90d,\n        SUM(quantidade) FILTER (WHERE data_venda >= CURRENT_DATE - INTERVAL '365 days') AS vendas_365d\n    FROM\n        vendas\n    GROUP BY\n        sku\n),\nIndicadores_Base AS (\n    -- Junto/calculo media de vendas\n    SELECT\n        p.sku,\n        p.nome,\n        p.categoria,\n        p.lead_time_dias,\n        e.estoque_fisico AS estoque_atual,\n        COALESCE(v.vendas_30d, 0) AS vendas_30d,\n        COALESCE(v.vendas_90d, 0) AS vendas_90d,\n        COALESCE(v.vendas_365d, 0) AS vendas_365d,\n        -- Média diária baseada nos últimos 90 dias para maior estabilidade.\n        (COALESCE(v.vendas_90d, 0) / 90.0) AS media_vendas_diaria\n    FROM\n        produtos p\n    JOIN\n        estoque_atual e ON p.sku = e.sku\n    LEFT JOIN\n        Vendas_Agregadas v ON p.sku = v.sku\n    WHERE\n        p.status = 'ATIVO'\n)\n-- Risco de ruptura, etc\nSELECT\n    sku,\n    nome,\n    categoria,\n    estoque_atual,\n    vendas_30d,\n    vendas_90d,\n    vendas_365d,\n    -- Cobertura = Estoque Atual / Media de Vendas Diária. FLOOR para arredondar para baixo.\n    FLOOR(estoque_atual / NULLIF(media_vendas_diaria, 0)) AS cobertura_dias,\n    ROUND(media_vendas_diaria, 2) as media_vendas_diaria,\n    -- O risco é definido pela comparação da cobertura com o tempo de reposição (lead time).\n    CASE\n        WHEN media_vendas_diaria = 0 THEN 'nulo'\n        WHEN FLOOR(estoque_atual / NULLIF(media_vendas_diaria, 0)) < lead_time_dias THEN 'alto'\n        WHEN FLOOR(estoque_atual / NULLIF(media_vendas_diaria, 0)) < (lead_time_dias * 1.5) THEN 'medio'\n        ELSE 'baixo'\n    END AS risco_ruptura\nFROM\n    Indicadores_Base\nORDER BY\n    risco_ruptura, cobertura_dias;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        96,
+        48
+      ],
+      "id": "6d7bfe14-701b-44da-8732-cc2fcb398be8",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "B75m3NP8FNAC9Vvn",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "stock-coverage",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -192,
+        160
+      ],
+      "id": "ff2fa24f-6fb5-4a36-9039-6d4946037d2c",
+      "name": "Webhook",
+      "webhookId": "e864e040-68d4-46a0-b908-497b42ae1bef"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        320,
+        48
+      ],
+      "id": "ba58272f-730b-41ae-a082-748480488e82",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow responsável por trazer o coverage do estoque\nResponde ao Endpoint stock-coverage\nA Query traz os SKU's com algumas métricas extras (risco ruptura, media de vendas, cobertura, etc). \nEsses dados potencializam que aqui poderia novamente haver um uso de outra IA para potencializar esses dados, e não deixa-los tão estáticos baseados em código, podendo ser mais flutuantes a depender do julgamento de uma LLM ",
+        "height": 528,
+        "width": 1040,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -272,
+        -192
+      ],
+      "id": "8c41db15-85c0-486e-8cb5-bfe5b6721634",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"data\": $input.all()[0].json.data.map(item => ({\n    \"sku\": item.sku,\n    \"nome\": item.nome,\n    \"categoria\": item.categoria,\n    \"estoque_atual\": item.estoque_atual,\n    \"vendas_30d\": parseFloat(item.vendas_30d),\n    \"vendas_90d\": parseFloat(item.vendas_90d),\n    \"vendas_365d\": parseFloat(item.vendas_365d),\n    \"media_vendas_diaria\": parseFloat(item.media_vendas_diaria),\n    \"cobertura_dias\": item.cobertura_dias === null ? 0 : parseFloat(item.cobertura_dias),\n    \"risco_ruptura\": item.risco_ruptura\n  }))\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        576,
+        48
+      ],
+      "id": "f48caa12-efd3-4520-844e-12344cfb3b9c",
+      "name": "Resposta ao Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Resposta ao Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "067de96f-16f2-4b16-aab1-8550483eaadf",
+  "meta": {
+    "instanceId": "44bf8e0e369ddf4ff04434e131f33f41ec8dffa94fb5f73783726fc03f2a91c4"
+  },
+  "id": "KBvsvlXmMkfehstN",
+  "tags": []
+}

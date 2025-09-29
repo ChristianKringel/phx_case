@@ -1,0 +1,155 @@
+{
+  "name": "overstock-alerts",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -192,
+        -176
+      ],
+      "id": "38b96cb9-c6b0-44e7-89c2-9599688d8a45",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "path": "overstock-alerts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -192,
+        0
+      ],
+      "id": "e743462f-b4a3-4a19-8142-2e0863d64fd0",
+      "name": "Webhook",
+      "webhookId": "e864e040-68d4-46a0-b908-497b42ae1bef"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        320,
+        -112
+      ],
+      "id": "69bc919a-dcae-4bf8-8ac1-63a43fde910e",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"data\": $input.all()[0].json.data.map(item => ({\n    \"sku\": item.sku,\n    \"nome\": item.nome,\n    \"categoria\": item.categoria,\n    \"estoque_atual\": item.estoque_atual,\n    \"dias_sem_venda\": item.dias_sem_venda,\n    \"valor_imobilizado\": item.valor_imobilizado.toNumber(),\n    \"tipo\": item.dias_sem_venda > 180 ? \"Crítico\" : \"Alerta\",\n    \"recomendacao\": item.recomendacao\n  }))\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        512,
+        -112
+      ],
+      "id": "cfaa6664-5d1a-4d75-a077-c8fb1fe94f64",
+      "name": "Resposta ao Webhook"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow responsável por responder ao Endpoint de overstock-alerts\nEsse flow realiza uma query no Postgres para resgatar itens em alerta de overstock. Aqui poderíamos utilizar alguma sugestão de IA, como promocão ou coisas do tipo a depender de cada item. \nA query do Postgres basicamente retorna todos que estão com a data  de venda com mais de 90 dias, ou seja não vende nenhum produto a mais de 90 dias. Já retorna o estado alerta/crítico para o front\n",
+        "height": 592,
+        "width": 944,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        -448
+      ],
+      "id": "0d283637-c3b4-4d87-8373-9b185fe616b6",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH UltimaVenda AS (\n    SELECT\n        sku,\n        MAX(data_venda) AS data_ultima_venda\n    FROM\n        vendas\n    GROUP BY\n        sku\n)\nSELECT\n    p.sku,\n    p.nome,\n    p.categoria,\n    e.estoque_fisico AS estoque_atual,\n    (CURRENT_DATE - uv.data_ultima_venda) AS dias_sem_venda,\n    (e.estoque_fisico * p.preco_custo) AS valor_imobilizado,\n    CASE\n        WHEN (CURRENT_DATE - uv.data_ultima_venda) >= 180 THEN 'Crítico: Liquidação ou queima de estoque'\n        WHEN (CURRENT_DATE - uv.data_ultima_venda) >= 90 THEN 'Alerta: Promoção ou desconto'\n        ELSE 'Monitorar'\n    END AS recomendacao\nFROM\n    produtos p\nJOIN\n    estoque_atual e ON p.sku = e.sku\nLEFT JOIN\n    UltimaVenda uv ON p.sku = uv.sku\nWHERE\n    e.estoque_fisico > 0\n    AND (\n      uv.data_ultima_venda IS NULL OR\n      (CURRENT_DATE - uv.data_ultima_venda) >= 90\n    )\nORDER BY\n    dias_sem_venda DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        112,
+        -112
+      ],
+      "id": "54a109b5-a335-4801-9bda-3d463b11745d",
+      "name": "Produtos com Overstock",
+      "credentials": {
+        "postgres": {
+          "id": "B75m3NP8FNAC9Vvn",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Produtos com Overstock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Produtos com Overstock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Resposta ao Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Produtos com Overstock": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c108c0fc-0ee0-43ab-b197-564cc9396f92",
+  "meta": {
+    "instanceId": "44bf8e0e369ddf4ff04434e131f33f41ec8dffa94fb5f73783726fc03f2a91c4"
+  },
+  "id": "094eyGJtYVWIKPlJ",
+  "tags": []
+}

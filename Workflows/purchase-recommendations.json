@@ -1,0 +1,431 @@
+{
+  "name": "purchase-recommendations",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -144,
+        -224
+      ],
+      "id": "15c8291c-670d-4eab-a01f-794acf9f8461",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "path": "purchase-recommendations",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -144,
+        -32
+      ],
+      "id": "cf7cb79f-cf87-4491-ad01-5d9bfe4194fe",
+      "name": "Webhook",
+      "webhookId": "e864e040-68d4-46a0-b908-497b42ae1bef"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        704,
+        128
+      ],
+      "id": "88b2f1d4-f5b6-4af1-b581-5bc38eef2e22",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "osIfDHgeq5rvJDqA",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n                    \"sku\": \"SKU_DO_PRODUTO\",\n                    \"demanda_diaria_prevista\": 2.5,\n                    \"justificativa_previsao\": \"A previsão se baseia na tendência de vendas observada nos últimos 30 dias, com ajuste para sazonalidade da categoria.\"\n                }"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        896,
+        128
+      ],
+      "id": "edfc594c-986b-4c08-890a-a9420b872694",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        -48
+      ],
+      "id": "4f2bb549-804b-4b21-a771-3e8d668fe36d",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH MetricasProdutos AS (\n    -- Calcula as metricas p cada produto ults 90d\n    SELECT\n        p.sku,\n        p.nome,\n        p.categoria,\n        e.estoque_fisico,\n        SUM(v.valor_total) AS faturamento_90d,\n        SUM(v.quantidade) AS vendas_totais_90d,\n        -- media diaria\n        SUM(v.quantidade) / 90.0 AS media_vendas_diaria,\n        -- desvio padrao\n        STDDEV(v.quantidade) AS volatilidade_vendas\n    FROM\n        produtos p\n    JOIN\n        estoque_atual e ON p.sku = e.sku\n    LEFT JOIN\n        vendas v ON p.sku = v.sku AND v.data_venda >= CURRENT_DATE - INTERVAL '90 days'\n    WHERE\n        p.status = 'ATIVO'\n    GROUP BY\n        p.sku, p.nome, p.categoria, e.estoque_fisico\n),\nProdutosComScore AS (\n    -- pontuacao paras metricas\n    -- fiz isso para selecionar determinados produtos \n    SELECT\n        m.*,\n        -- cobertura de estoque em dias \n        CASE\n            WHEN m.media_vendas_diaria > 0 THEN m.estoque_fisico / m.media_vendas_diaria\n            ELSE 9999 \n        END AS cobertura_estoque_dias,\n        -- class abc\n        NTILE(100) OVER (ORDER BY m.faturamento_90d DESC) as percentil_faturamento,\n        -- pontuacao\n        (\n            -- menor cobertura = maior pontuacao\n            CASE\n                WHEN (m.estoque_fisico / NULLIF(m.media_vendas_diaria, 0)) < 15 THEN 50 -- critico\n                WHEN (m.estoque_fisico / NULLIF(m.media_vendas_diaria, 0)) < 30 THEN 30 -- alerta\n                ELSE 0\n            END\n            +\n            -- Pontos por Curva ABC \n            CASE\n                WHEN NTILE(100) OVER (ORDER BY m.faturamento_90d DESC) <= 20 THEN 40 -- Curva A (Top 20%)\n                WHEN NTILE(100) OVER (ORDER BY m.faturamento_90d DESC) <= 50 THEN 20 -- Curva B (Próximos 30%)\n                ELSE 5\n            END\n            +\n         -- volatilidade\n            CASE\n                WHEN m.volatilidade_vendas > (SELECT AVG(volatilidade_vendas) FROM MetricasProdutos) THEN 25 \n                ELSE 0\n            END\n        ) AS score_final\n    FROM\n        MetricasProdutos m\n)\n-- Dados para IA, pegar os 10 melhores\nSELECT\n    p.sku,\n    p.nome,\n    p.categoria,\n    p.preco_custo,\n    p.lead_time_dias,\n    e.estoque_fisico,\n    e.estoque_em_transito AS estoque_vindo,\n    (SELECT valor FROM parametros WHERE tipo_parametro = 'cobertura_curva_' || lower(\n        CASE\n            WHEN s.percentil_faturamento <= 20 THEN 'a'\n            WHEN s.percentil_faturamento <= 50 THEN 'b'\n            ELSE 'c'\n        END\n    ))::INTEGER AS cobertura_desejada,\n    (SELECT json_agg(json_build_object('data', v.data_venda, 'quantidade', v.quantidade) ORDER BY v.data_venda DESC) FROM vendas v WHERE v.sku = p.sku) AS vendas_historico,\n    s.score_final -- pontuacao \nFROM\n    ProdutosComScore s\nJOIN\n    produtos p ON s.sku = p.sku\nJOIN\n    estoque_atual e ON s.sku = e.sku\n-- so olho para os que estao vendendo e com \"baixo estoque\"\nWHERE\n    s.cobertura_estoque_dias < 90 -- ignora produtos com mto estoq\n    AND s.faturamento_90d > 0 -- ignora produtos sem venda\nORDER BY\n    s.score_final DESC\nLIMIT 10;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        160,
+        -48
+      ],
+      "id": "d1a03012-64ff-4f9d-945e-61cf0e09328f",
+      "name": "Query com pontuacao",
+      "credentials": {
+        "postgres": {
+          "id": "B75m3NP8FNAC9Vvn",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Postgres Query\nEssa query é responsável por trazer os \"melhores\" dados possíveis para o Agente não analisar muitos produtos (muito  caro)\n### Seleciona com base em um score que calculei por algumas metricas: \n- Quantidade de vendas\n- Media dos dias",
+        "height": 320,
+        "width": 560
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        80,
+        -224
+      ],
+      "id": "74dcee6c-946a-4f27-92b2-a60f3b69e58b",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Sku: {{ $json.sku }}\nNome do produto: {{ $json.nome }}\nCategoria: {{ $json.categoria }}\nCobertura desejada: {{ $json.cobertura_desejada }}\nHistórico de vendas: \n{{ JSON.stringify($json.vendas_historico) }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=<prompt>\n    <instrucao>\n        <persona>\n            Você é um assistente de IA especialista em análise de séries temporais para previsão de demanda de vendas.\n        </persona>\n        <objetivo>\n            Sua única tarefa é analisar o histórico de vendas de cada produto fornecido e gerar dois dados: a **previsão de demanda diaria** para o futuro próximo e uma **justificativa** para essa previsão. Você não deve calcular nenhuma outra métrica.\n            A previsão de demanda diaria  DEVE levar em consideracão aumentos abruptos de consumo do produto nos ultimos dias/mes ou qualquer crescimento na curva de vendas desse produto nos ultimos tempos, bem como o contrário para o decrescimento. \n            Você também deve levar em consideracão sazonalidades de certos produtos (ex produtos natalinos que são mais vendidos no final do ano por conta das festas).\n            Observe produtos que sejam da mesma categoria, pois podem ter tendencias direcionadas a categoria de um produto. \n        </objetivo>\n    </instrucao>\n\n    <formato_de_saida>\n        <descricao>\n            Sua resposta deve ser um  JSON. Cada objeto deve conter o `sku` do produto, a `demanda_diaria_prevista` (um número) e a `justificativa_previsao` (uma string).\n        </descricao>\n        <estrutura_json_saida>\n                {\n                    \"sku\": \"SKU_DO_PRODUTO\",\n                    \"demanda_diaria_prevista\": 2.5,\n                    \"justificativa_previsao\": \"A previsão se baseia na tendência de vendas observada nos últimos 30 dias, com ajuste para sazonalidade da categoria.\"\n                }\n        </estrutura_json_saida>\n    </formato_de_saida>\n</prompt>"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        736,
+        -48
+      ],
+      "id": "72359435-5a30-4b6c-83c8-f7926c5fcebe",
+      "name": "Previsor de demanda diaria"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "55ad7a65-12c6-407b-94df-4fac418067a9",
+              "name": "sku",
+              "value": "={{ $json.output.sku }}",
+              "type": "string"
+            },
+            {
+              "id": "8bd4e5a7-212d-436c-9c6c-ecaeb7b2fa26",
+              "name": "demanda_diaria_prevista",
+              "value": "={{ $json.output.demanda_diaria_prevista }}",
+              "type": "number"
+            },
+            {
+              "id": "0d39791d-718b-4445-a0fe-5e71672dfce4",
+              "name": "justificativa_previsao",
+              "value": "={{ $json.output.justificativa_previsao }}",
+              "type": "string"
+            },
+            {
+              "id": "025dc74c-12b9-45ff-8a82-97740d5cb502",
+              "name": "quantidade",
+              "value": "={{ ($json.output.demanda_diaria_prevista * ($('Query com pontuacao').item.json.lead_time_dias + $('Query com pontuacao').item.json.cobertura_desejada)) - ($('Query com pontuacao').item.json.estoque_fisico + $('Query com pontuacao').item.json.estoque_vindo) }}",
+              "type": "number"
+            },
+            {
+              "id": "33fe0620-19a1-4108-ac70-d0a0d5f8362d",
+              "name": "nome",
+              "value": "={{ $('Query com pontuacao').item.json.nome }}",
+              "type": "string"
+            },
+            {
+              "id": "80f5d562-4de1-4522-b77b-633697e18848",
+              "name": "categoria",
+              "value": "={{ $('Query com pontuacao').item.json.categoria }}",
+              "type": "string"
+            },
+            {
+              "id": "21b8a184-3bc8-4f80-873f-d22e52787409",
+              "name": "custo_produto",
+              "value": "={{ $('Query com pontuacao').item.json.preco_custo.toNumber() }}",
+              "type": "number"
+            },
+            {
+              "id": "443a7beb-0088-46e8-bdc9-a20a79a3ec7e",
+              "name": "estoque_atual",
+              "value": "={{ $('Query com pontuacao').item.json.estoque_fisico }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1088,
+        -48
+      ],
+      "id": "5211a246-ed70-426b-9f2a-3509687de4ee",
+      "name": "Map Fields"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"data\": $input.all()[0].json.data.map(item => ({\n    \"sku\": item.sku,\n    \"nome\": item.nome,\n    \"categoria\": item.categoria,\n    \"estoque_atual\": item.estoque_atual,\n    \"quantidade_sugerida\": item.quantidade > 0 ? item.quantidade.ceil : 0,\n    \"prioridade\": item.quantidade > 0 ?(item.quantidade > item.estoque_atual ? \"alta\" : \"media\") : \"baixa\",\n    \"valor_investimento\": item.quantidade > 0 ? (item.custo_produto * item.quantidade) : 0,\n    \"motivo\": item.justificativa_previsao\n  }))\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1472,
+        -48
+      ],
+      "id": "4e59f53b-9b87-4415-9447-66e2a3e488e2",
+      "name": "Resposta do Webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "dba33789-c7e6-4101-8669-282ad9bff111",
+              "name": "quantia_vendas",
+              "value": "={{ $json.vendas_historico.length }}",
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        512,
+        -48
+      ],
+      "id": "82171db3-d53c-460d-bb72-0b72d979a761",
+      "name": "Get quantia_vendas"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"success\": true, \"data\": [{\"sku\": \"UIF-####\", \"nome\": \"Sony O conforto de mudar naturalmente\", \"categoria\": \"Eletrônicos\", \"estoque_atual\": 3, \"quantidade_sugerida\": 5.789999999999999, \"prioridade\": \"alta\", \"valor_investimento\": 5834.5251, \"motivo\": \"A previsão se baseia na análise do histórico de vendas do produto. Observou-se uma clara tendência de crescimento na demanda ao longo dos últimos meses. A média diária de vendas nos últimos 30 dias (aproximadamente 0.39 unidades/dia) foi significativamente maior do que a média dos períodos anteriores (últimos 90 dias e média geral), indicando uma curva de vendas em ascensão. Portanto, a previsão de demanda diária reflete essa tendência de crescimento recente.\"},{\"sku\": \"MYN-####\", \"nome\": \"Tramontina A possibilidade de atingir seus objetivos sem preocupação\", \"categoria\": \"Casa e Jardim\", \"estoque_atual\": 3, \"quantidade_sugerida\": 19.6, \"prioridade\": \"alta\", \"valor_investimento\": 3271.044, \"motivo\": \"A previsão de demanda se baseia na análise do histórico de vendas, que demonstra uma leve tendência de crescimento. A demanda diária média observada nos últimos 30 dias (0.4 unidades/dia) é superior à média dos últimos 60 dias (0.33 unidades/dia) e 90 dias (0.3 unidades/dia), indicando um aumento gradual no consumo do produto. Não foram identificados padrões sazonais significativos para este período no histórico disponível.\"},{\"sku\": \"WUX-####\", \"nome\": \"LG A liberdade de avançar direto da fonte\", \"categoria\": \"Eletrônicos\", \"estoque_atual\": 2, \"quantidade_sugerida\": 0.4499999999999993, \"prioridade\": \"media\", \"valor_investimento\": 533.7674999999992, \"motivo\": \"A previsão se baseia na média de vendas observada nos últimos 30 dias (10 unidades vendidas), que demonstra uma demanda estável de aproximadamente 0.33 unidades por dia. Houve uma leve recuperação nas vendas em setembro comparado a julho e agosto, indicando uma continuidade dessa taxa de consumo. Não há indícios de sazonalidade abrupta para os próximos meses que altere significativamente essa tendência.\"},{\"sku\": \"SPK-####\", \"nome\": \"Philips A simplicidade de atingir seus objetivos de maneira eficaz\", \"categoria\": \"Eletrônicos\", \"estoque_atual\": 0, \"quantidade_sugerida\": 3.710000000000001, \"prioridade\": \"alta\", \"valor_investimento\": 6217.885800000002, \"motivo\": \"A previsão de demanda diária de 0.13 unidades baseia-se na análise do histórico de vendas, com foco na tendência de decrescimento observada nos períodos mais recentes. A média de vendas diárias nos últimos 61 dias (2025-07-17 a 2025-09-15) foi de aproximadamente 0.13 unidades/dia, e o início de setembro de 2025 mostra uma continuação dessa desaceleração. Embora haja picos sazonais históricos em dezembro/janeiro e junho, a tendência atual de queda é predominante, e a previsão de 0.13 reflete essa redução, evitando superestimar a demanda com base em picos passados distantes.\"},{\"sku\": \"KYS-####\", \"nome\": \"Motorola O poder de conseguir sem preocupação\", \"categoria\": \"Eletrônicos\", \"estoque_atual\": 0, \"quantidade_sugerida\": 2.3200000000000003, \"prioridade\": \"alta\", \"valor_investimento\": 2769.6392, \"motivo\": \"A análise do histórico de vendas do SKU KYS-#### revela um padrão de consumo esporádico e de baixo volume. A média diária de vendas no último ano foi de aproximadamente 0.23 unidades. No entanto, observou-se uma leve desaceleração nos últimos 90 dias, com uma média de aproximadamente 0.18 unidades por dia. Dada a natureza irregular das vendas e a ausência de aumentos abruptos ou tendências de crescimento sustentadas, a previsão de demanda diária é estabelecida em 0.18 unidades, refletindo a atividade recente e conservando uma perspectiva realista para o futuro próximo. Não foram identificados padrões sazonais claros com os dados disponíveis.\"},{\"sku\": \"AFV-####\", \"nome\": \"LG O conforto de evoluir naturalmente\", \"categoria\": \"Eletrônicos\", \"estoque_atual\": 3, \"quantidade_sugerida\": 3.6000000000000014, \"prioridade\": \"alta\", \"valor_investimento\": 4091.760000000001, \"motivo\": \"A previsão de demanda diária de 0.2 unidades se baseia na análise do histórico de vendas do produto AFV-####, que demonstra um padrão de consumo baixo e esporádico ao longo do período analisado. A média de vendas diárias nos últimos 12 meses (Outubro de 2024 a Setembro de 2025) é consistente em aproximadamente 0.2 unidades. Apesar de um volume ligeiramente maior em Julho de 2025, os meses subsequentes de Agosto e Setembro (parcial) retornaram a volumes próximos à média, não indicando um aumento abrupto sustentado ou uma tendência de crescimento recente na curva de vendas. A sazonalidade não é um fator predominante com base nos dados fornecidos, e a previsão reflete a estabilidade da demanda de baixo volume.\"},{\"sku\": \"IQE-####\", \"nome\": \"Samsung A certeza de realizar seus sonhos com força total\", \"categoria\": \"Eletrônicos\", \"estoque_atual\": 3, \"quantidade_sugerida\": 0, \"prioridade\": \"baixa\", \"valor_investimento\": 0, \"motivo\": \"A previsão de demanda diária é de 0.2 unidades, baseada na análise do histórico de vendas. Embora tenha havido um aumento no consumo em agosto, o mês de setembro apresentou uma leve desaceleração. A média dos últimos três meses (julho, agosto e setembro) foi utilizada para uma previsão mais equilibrada, refletindo o consumo recente sem superestimar picos pontuais e considerando a natureza de baixa demanda do produto.\"},{\"sku\": \"CTL-####\", \"nome\": \"Tramontina A certeza de conseguir com força total\", \"categoria\": \"Casa e Jardim\", \"estoque_atual\": 1, \"quantidade_sugerida\": 27.200000000000003, \"prioridade\": \"alta\", \"valor_investimento\": 2496.416, \"motivo\": \"A previsão se baseia na média de vendas dos últimos 30 dias, que foi de aproximadamente 0.43 unidades por dia. Embora a demanda seja consistentemente baixa, houve um leve aumento em comparação com a média dos últimos 90 dias (0.34 unidades por dia). Não foram identificadas sazonalidades ou aumentos/decréscimos abruptos significativos, indicando uma demanda estável e de baixo volume para o produto.\"},{\"sku\": \"CET-####\", \"nome\": \"Nestlé A simplicidade de inovar antes de tudo\", \"categoria\": \"Alimentação\", \"estoque_atual\": 3, \"quantidade_sugerida\": 0, \"prioridade\": \"baixa\", \"valor_investimento\": 0, \"motivo\": \"A previsão de 0.17 unidades por dia é baseada na análise do histórico de vendas dos últimos 60 dias, onde foram vendidas 10 unidades. Observa-se um decréscimo significativo na demanda, com 13 unidades vendidas em julho, 4 em agosto e apenas 2 nos primeiros 20 dias de setembro. Este padrão de queda recente indica uma tendência de desaceleração nas vendas, refletindo-se na previsão conservadora.\"},{\"sku\": \"LEM-####\", \"nome\": \"Puma A liberdade de mudar naturalmente\", \"categoria\": \"Esportes\", \"estoque_atual\": 29, \"quantidade_sugerida\": 0, \"prioridade\": \"baixa\", \"valor_investimento\": 0, \"motivo\": \"A previsão se baseia na média de vendas dos últimos 30 dias (0.4 unidades/dia), que se mantém estável em comparação com o período anterior.\"}]}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -144,
+        160
+      ],
+      "id": "ac1b6353-1cc2-4982-8b59-111609cec878",
+      "name": "Resposta do Webhook Mockado"
+    }
+  ],
+  "pinData": {
+    "Map Fields": [
+      {
+        "json": {
+          "sku": "CTL-####",
+          "demanda_diaria_prevista": 0.43,
+          "justificativa_previsao": "A demanda diária prevista de 0.43 unidades baseia-se na análise da tendência de vendas, que indica um crescimento gradual nos últimos meses. A média dos últimos 30 dias (0.43 unidades/dia) é superior à média do último ano (0.26 unidades/dia), refletindo essa leve ascensão. Não foram observados aumentos abruptos de consumo ou sazonalidades proeminentes para este produto, mas a curva de vendas recente aponta para uma manutenção ou ligeiro incremento do consumo atual.",
+          "quantidade": 25.68,
+          "nome": "Tramontina A certeza de conseguir com força total",
+          "categoria": "Casa e Jardim",
+          "custo_produto": 91.78,
+          "estoque_atual": 1
+        }
+      },
+      {
+        "json": {
+          "sku": "BAH-####",
+          "demanda_diaria_prevista": 0.4,
+          "justificativa_previsao": "A previsão se baseia na observação de um aumento na taxa de vendas em setembro (0.41 unidades/dia) após uma queda abrupta em agosto (0.16 unidades/dia). Embora o produto apresente um histórico de vendas volátil, com picos em meses como março, junho e julho, a recuperação atual sugere uma demanda diária esperada de 0.4 unidades, refletindo a tendência de alta mais recente.",
+          "quantidade": -286.2,
+          "nome": "Philips A arte de atingir seus objetivos mais rapidamente",
+          "categoria": "Eletrônicos",
+          "custo_produto": 339.82,
+          "estoque_atual": 298
+        }
+      },
+      {
+        "json": {
+          "sku": "QIW-####",
+          "demanda_diaria_prevista": 0.15,
+          "justificativa_previsao": "A previsão de demanda diária é baseada na análise do histórico de vendas do produto. Observamos uma média geral de aproximadamente 0.34 unidades por dia ao longo do último ano. No entanto, há um claro padrão de decrescimento na demanda mais recente: a média dos últimos 90 dias foi de cerca de 0.18 unidades/dia, e nos últimos 30 dias, a demanda média caiu para aproximadamente 0.13 unidades/dia. A previsão de 0.15 unidades/dia reflete essa tendência recente de queda, buscando um ponto que represente o comportamento de vendas atual após a diminuição observada.",
+          "quantidade": -279.9,
+          "nome": "Nivea A simplicidade de ganhar com toda a tranquilidade",
+          "categoria": "Beleza",
+          "custo_produto": 171.88,
+          "estoque_atual": 269
+        }
+      },
+      {
+        "json": {
+          "sku": "LTO-####",
+          "demanda_diaria_prevista": 1.3,
+          "justificativa_previsao": "A previsão se baseia na análise da tendência de vendas, que demonstra um crescimento acentuado no consumo do produto. A demanda diária média dos últimos 14 dias foi de aproximadamente 1.28 unidades/dia, um aumento significativo em comparação com a média dos últimos 30 dias (cerca de 0.71 unidades/dia). Essa aceleração recente é o principal fator para a previsão, indicando uma demanda crescente no futuro próximo. Não foram observadas sazonalidades anuais marcantes para este produto.",
+          "quantidade": -42.39999999999999,
+          "nome": "Electrolux A certeza de concretizar seus projetos com toda a tranquilidade",
+          "categoria": "Casa e Jardim",
+          "custo_produto": 75.15,
+          "estoque_atual": 88
+        }
+      },
+      {
+        "json": {
+          "sku": "NRP-####",
+          "demanda_diaria_prevista": 0.45,
+          "justificativa_previsao": "A previsão de demanda diária se baseia em uma análise da tendência de vendas, que demonstra um crescimento consistente nos últimos 90 dias, com a média diária aumentando de 0.33 para 0.40. A demanda observada no mês atual (setembro de 2025) já é de aproximadamente 0.435 unidades por dia, superando a média dos últimos 30 dias. Além disso, há evidências de sazonalidade, com um pico significativo de demanda em dezembro de 2024 (0.516 unidades/dia), sugerindo um aumento potencial no consumo para o último trimestre do ano.",
+          "quantidade": -129.15,
+          "nome": "Record A arte de realizar seus sonhos naturalmente",
+          "categoria": "Livros",
+          "custo_produto": 20.98,
+          "estoque_atual": 156
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Query com pontuacao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Query com pontuacao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Previsor de demanda diaria",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Previsor de demanda diaria",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Resposta do Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query com pontuacao": {
+      "main": [
+        [
+          {
+            "node": "Get quantia_vendas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Previsor de demanda diaria": {
+      "main": [
+        [
+          {
+            "node": "Map Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Fields": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get quantia_vendas": {
+      "main": [
+        [
+          {
+            "node": "Previsor de demanda diaria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resposta do Webhook Mockado": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1a8f7c18-a9e9-4e81-8978-588065daf8a7",
+  "meta": {
+    "instanceId": "44bf8e0e369ddf4ff04434e131f33f41ec8dffa94fb5f73783726fc03f2a91c4"
+  },
+  "id": "TJTzmdgKCkcYuARt",
+  "tags": []
+}
